@@ -11,7 +11,7 @@ from AR3 code because of file separation, patching does not work well.
 I want to use Rails 4 with Redshift NOW, so I created this repository.
 If anybody write better Redshift driver for ActiveRecord 4, I abandon this driver.
 
-How to Use
+Usage
 -------------------
 
 In Gemfile
@@ -23,9 +23,9 @@ In database.yml
 ```
 development:
   adapter: redshift
-  host: your_cluster_name.ident.ap-east-1.redshift.amazonaws.com
-  database: dev
+  host: your_cluster_name.hashhash.ap-northeast-1.redshift.amazonaws.com
   port: 5439
+  database: dev
   username: your_user
   password: your_password
   encoding: utf8
