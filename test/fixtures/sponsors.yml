@@ -1,0 +1,12 @@
+moustache_club_sponsor_for_groucho:
+  sponsor_club: moustache_club
+  sponsorable_id: 1
+  sponsorable_type: Member
+boring_club_sponsor_for_groucho:
+  sponsor_club: boring_club
+  sponsorable_id: 2
+  sponsorable_type: Member
+crazy_club_sponsor_for_groucho:
+  sponsor_club: crazy_club
+  sponsorable_id: 2
+  sponsorable_type: Member
