@@ -10,7 +10,7 @@ Gem::Specification.new do |s|
   s.email = 'mineroaoki@gmail.com'
   s.homepage = 'http://github.com/aamine/activerecord4-redshift-adapter'
 
-  s.files = Dir.glob('LICENSE', 'README.md', 'lib/**/*.rb')
+  s.files = Dir.glob(['LICENSE', 'README.md', 'lib/**/*.rb'])
   s.require_path = 'lib'
 
   s.required_ruby_version = '>= 2.0.0'
