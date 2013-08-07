@@ -28,7 +28,7 @@ development:
   port: 5439
   username: your_user
   password: your_password
-  encoding: utf-8
+  encoding: utf8
   pool: 3
   timeout: 5000
 ```
