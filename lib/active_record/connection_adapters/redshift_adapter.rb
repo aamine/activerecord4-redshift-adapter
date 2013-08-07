@@ -1,12 +1,12 @@
 require 'active_record/connection_adapters/abstract_adapter'
 require 'active_record/connection_adapters/statement_pool'
-require 'active_record/connection_adapters/postgresql/oid'
-require 'active_record/connection_adapters/postgresql/cast'
-require 'active_record/connection_adapters/postgresql/array_parser'
-require 'active_record/connection_adapters/postgresql/quoting'
-require 'active_record/connection_adapters/postgresql/schema_statements'
-require 'active_record/connection_adapters/postgresql/database_statements'
-require 'active_record/connection_adapters/postgresql/referential_integrity'
+require 'active_record/connection_adapters/redshift/oid'
+require 'active_record/connection_adapters/redshift/cast'
+require 'active_record/connection_adapters/redshift/array_parser'
+require 'active_record/connection_adapters/redshift/quoting'
+require 'active_record/connection_adapters/redshift/schema_statements'
+require 'active_record/connection_adapters/redshift/database_statements'
+require 'active_record/connection_adapters/redshift/referential_integrity'
 require 'arel/visitors/bind_visitor'
 
 # Make sure we're using pg high enough for PGResult#values
@@ -17,14 +17,14 @@ require 'ipaddr'
 
 module ActiveRecord
   module ConnectionHandling # :nodoc:
-    VALID_CONN_PARAMS = [:host, :hostaddr, :port, :dbname, :user, :password, :connect_timeout,
+    RS_VALID_CONN_PARAMS = [:host, :hostaddr, :port, :dbname, :user, :password, :connect_timeout,
                          :client_encoding, :options, :application_name, :fallback_application_name,
                          :keepalives, :keepalives_idle, :keepalives_interval, :keepalives_count,
                          :tty, :sslmode, :requiressl, :sslcert, :sslkey, :sslrootcert, :sslcrl,
                          :requirepeer, :krbsrvname, :gsslib, :service]
 
     # Establishes a connection to the database that's used by all Active Record objects
-    def postgresql_connection(config)
+    def redshift_connection(config)
       conn_params = config.symbolize_keys
 
       conn_params.delete_if { |_, v| v.nil? }
@@ -34,17 +34,17 @@ module ActiveRecord
       conn_params[:dbname] = conn_params.delete(:database) if conn_params[:database]
 
       # Forward only valid config params to PGconn.connect.
-      conn_params.keep_if { |k, _| VALID_CONN_PARAMS.include?(k) }
+      conn_params.keep_if { |k, _| RS_VALID_CONN_PARAMS.include?(k) }
 
       # The postgres drivers don't allow the creation of an unconnected PGconn object,
       # so just pass a nil connection object for the time being.
-      ConnectionAdapters::PostgreSQLAdapter.new(nil, logger, conn_params, config)
+      ConnectionAdapters::RedshiftAdapter.new(nil, logger, conn_params, config)
     end
   end
 
   module ConnectionAdapters
     # PostgreSQL-specific extensions to column definitions in a table.
-    class PostgreSQLColumn < Column #:nodoc:
+    class RedshiftColumn < Column #:nodoc:
       attr_accessor :array
       # Instantiates a new PostgreSQL column definition in a table.
       def initialize(name, default, oid_type, sql_type = nil, null = true)
@@ -60,8 +60,8 @@ module ActiveRecord
 
       # :stopdoc:
       class << self
-        include ConnectionAdapters::PostgreSQLColumn::Cast
-        include ConnectionAdapters::PostgreSQLColumn::ArrayParser
+        include ConnectionAdapters::RedshiftColumn::Cast
+        include ConnectionAdapters::RedshiftColumn::ArrayParser
         attr_accessor :money_precision
       end
       # :startdoc:
@@ -80,7 +80,7 @@ module ActiveRecord
           when /\A'(.*)'::(num|date|tstz|ts|int4|int8)range\z/m
             $1
           # Numeric types
-          when /\A\(?(-?\d+(\.\d*)?\)?(::bigint)?)\z/
+          when /\A\(?(-?\d+(\.\d*)?\)?)\z/
             $1
           # Character types
           when /\A\(?'(.*)'::.*\b(?:character varying|bpchar|text)\z/m
@@ -258,7 +258,7 @@ module ActiveRecord
     #
     # In addition, default connection parameters of libpq can be set per environment variables.
     # See http://www.postgresql.org/docs/9.1/static/libpq-envars.html .
-    class PostgreSQLAdapter < AbstractAdapter
+    class RedshiftAdapter < AbstractAdapter
       class ColumnDefinition < ActiveRecord::ConnectionAdapters::ColumnDefinition
         attr_accessor :array
       end
@@ -389,7 +389,7 @@ module ActiveRecord
         include ColumnMethods
       end
 
-      ADAPTER_NAME = 'PostgreSQL'
+      ADAPTER_NAME = 'Redshift'
 
       NATIVE_DATABASE_TYPES = {
         primary_key: "serial primary key",
@@ -533,6 +533,7 @@ module ActiveRecord
           @visitor = unprepared_visitor
         end
 
+        connection_parameters.delete :prepared_statements
         @connection_parameters, @config = connection_parameters, config
 
         # @local_tz is initialized as nil to avoid warnings when connect tries to use it
@@ -542,10 +543,6 @@ module ActiveRecord
         connect
         @statements = StatementPool.new @connection,
                                         self.class.type_cast_config_to_integer(config.fetch(:statement_limit) { 1000 })
-
-        if postgresql_version < 80200
-          raise "Your version of PostgreSQL (#{postgresql_version}) is too old, please upgrade!"
-        end
 
         initialize_type_map
         @local_tz = execute('SHOW TIME ZONE', 'SCHEMA').first["TimeZone"]
@@ -595,14 +592,6 @@ module ActiveRecord
       # Does PostgreSQL support finding primary key on non-Active Record tables?
       def supports_primary_key? #:nodoc:
         true
-      end
-
-      # Enable standard-conforming strings if available.
-      def set_standard_conforming_strings
-        old, self.client_min_messages = client_min_messages, 'panic'
-        execute('SET standard_conforming_strings = on', 'SCHEMA') rescue nil
-      ensure
-        self.client_min_messages = old
       end
 
       def supports_insert_with_returning?
@@ -714,10 +703,10 @@ module ActiveRecord
         def translate_exception(exception, message)
           return exception unless exception.respond_to?(:result)
 
-          case exception.result.try(:error_field, PGresult::PG_DIAG_SQLSTATE)
-          when UNIQUE_VIOLATION
+          case exception.message
+          when /duplicate key value violates unique constraint/
             RecordNotUnique.new(message, exception)
-          when FOREIGN_KEY_VIOLATION
+          when /violates foreign key constraint/
             InvalidForeignKey.new(message, exception)
           else
             super
@@ -783,11 +772,7 @@ module ActiveRecord
           # prepared statements whose return value may have changed is
           # FEATURE_NOT_SUPPORTED.  Check here for more details:
           # http://git.postgresql.org/gitweb/?p=postgresql.git;a=blob;f=src/backend/utils/cache/plancache.c#l573
-          begin
-            code = e.result.result_error_field(PGresult::PG_DIAG_SQLSTATE)
-          rescue
-            raise e
-          end
+          code = e.result.result_error_field(PGresult::PG_DIAG_SQLSTATE)
           if FEATURE_NOT_SUPPORTED == code
             @statements.delete sql_key(sql)
             retry
@@ -827,7 +812,7 @@ module ActiveRecord
           # Money type has a fixed precision of 10 in PostgreSQL 8.2 and below, and as of
           # PostgreSQL 8.3 it has a fixed precision of 19. PostgreSQLColumn.extract_precision
           # should know about this but can't detect it there, so deal with it here.
-          PostgreSQLColumn.money_precision = (postgresql_version >= 80300) ? 19 : 10
+          RedshiftColumn.money_precision = (postgresql_version >= 80300) ? 19 : 10
 
           configure_connection
         end
@@ -838,20 +823,7 @@ module ActiveRecord
           if @config[:encoding]
             @connection.set_client_encoding(@config[:encoding])
           end
-          self.client_min_messages = @config[:min_messages] || 'warning'
           self.schema_search_path = @config[:schema_search_path] || @config[:schema_order]
-
-          # Use standard-conforming strings if available so we don't have to do the E'...' dance.
-          set_standard_conforming_strings
-
-          # If using Active Record's time zone support configure the connection to return
-          # TIMESTAMP WITH ZONE types in UTC.
-          # (SET TIME ZONE does not use an equals sign like other SET variables)
-          if ActiveRecord::Base.default_timezone == :utc
-            execute("SET time zone 'UTC'", 'SCHEMA')
-          elsif @local_tz
-            execute("SET time zone '#{@local_tz}'", 'SCHEMA')
-          end
 
           # SET statements from :variables config hash
           # http://www.postgresql.org/docs/8.3/static/sql-set.html

@@ -2,7 +2,7 @@ require 'active_record/connection_adapters/abstract_adapter'
 
 module ActiveRecord
   module ConnectionAdapters
-    class PostgreSQLAdapter < AbstractAdapter
+    class RedshiftAdapter < AbstractAdapter
       module OID
         class Type
           def type; end
@@ -21,7 +21,7 @@ module ActiveRecord
         class Bit < Type
           def type_cast(value)
             if String === value
-              ConnectionAdapters::PostgreSQLColumn.string_to_bit value
+              ConnectionAdapters::RedshiftColumn.string_to_bit value
             else
               value
             end
@@ -77,7 +77,7 @@ module ActiveRecord
         class Point < Type
           def type_cast(value)
             if String === value
-              ConnectionAdapters::PostgreSQLColumn.string_to_point value
+              ConnectionAdapters::RedshiftColumn.string_to_point value
             else
               value
             end
@@ -92,7 +92,7 @@ module ActiveRecord
 
           def type_cast(value)
             if String === value
-              ConnectionAdapters::PostgreSQLColumn.string_to_array value, @subtype
+              ConnectionAdapters::RedshiftColumn.string_to_array value, @subtype
             else
               value
             end
@@ -181,7 +181,7 @@ module ActiveRecord
 
             # FIXME: probably we can improve this since we know it is PG
             # specific
-            ConnectionAdapters::PostgreSQLColumn.string_to_time value
+            ConnectionAdapters::RedshiftColumn.string_to_time value
           end
         end
 
@@ -227,7 +227,7 @@ module ActiveRecord
           def type_cast(value)
             return if value.nil?
 
-            ConnectionAdapters::PostgreSQLColumn.string_to_hstore value
+            ConnectionAdapters::RedshiftColumn.string_to_hstore value
           end
         end
 
@@ -235,7 +235,7 @@ module ActiveRecord
           def type_cast(value)
             return if value.nil?
 
-            ConnectionAdapters::PostgreSQLColumn.string_to_cidr value
+            ConnectionAdapters::RedshiftColumn.string_to_cidr value
           end
         end
 
@@ -243,7 +243,7 @@ module ActiveRecord
           def type_cast(value)
             return if value.nil?
 
-            ConnectionAdapters::PostgreSQLColumn.string_to_json value
+            ConnectionAdapters::RedshiftColumn.string_to_json value
           end
         end
 

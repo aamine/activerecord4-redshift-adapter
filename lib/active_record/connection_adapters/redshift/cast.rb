@@ -1,6 +1,6 @@
 module ActiveRecord
   module ConnectionAdapters
-    class PostgreSQLColumn < Column
+    class RedshiftColumn < Column
       module Cast
         def point_to_string(point)
           "(#{point[0]},#{point[1]})"

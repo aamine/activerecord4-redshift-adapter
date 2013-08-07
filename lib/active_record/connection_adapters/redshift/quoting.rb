@@ -1,6 +1,6 @@
 module ActiveRecord
   module ConnectionAdapters
-    class PostgreSQLAdapter < AbstractAdapter
+    class RedshiftAdapter < AbstractAdapter
       module Quoting
         # Escapes binary strings for bytea input to the database.
         def escape_bytea(value)
@@ -23,29 +23,29 @@ module ActiveRecord
           case value
           when Range
             if /range$/ =~ sql_type
-              "'#{PostgreSQLColumn.range_to_string(value)}'::#{sql_type}"
+              "'#{RedshiftColumn.range_to_string(value)}'::#{sql_type}"
             else
               super
             end
           when Array
             case sql_type
-            when 'point' then super(PostgreSQLColumn.point_to_string(value))
+            when 'point' then super(RedshiftColumn.point_to_string(value))
             else
               if column.array
-                "'#{PostgreSQLColumn.array_to_string(value, column, self).gsub(/'/, "''")}'"
+                "'#{RedshiftColumn.array_to_string(value, column, self).gsub(/'/, "''")}'"
               else
                 super
               end
             end
           when Hash
             case sql_type
-            when 'hstore' then super(PostgreSQLColumn.hstore_to_string(value), column)
-            when 'json' then super(PostgreSQLColumn.json_to_string(value), column)
+            when 'hstore' then super(RedshiftColumn.hstore_to_string(value), column)
+            when 'json' then super(RedshiftColumn.json_to_string(value), column)
             else super
             end
           when IPAddr
             case sql_type
-            when 'inet', 'cidr' then super(PostgreSQLColumn.cidr_to_string(value), column)
+            when 'inet', 'cidr' then super(RedshiftColumn.cidr_to_string(value), column)
             else super
             end
           when Float
@@ -86,7 +86,7 @@ module ActiveRecord
           case value
           when Range
             return super(value, column) unless /range$/ =~ column.sql_type
-            PostgreSQLColumn.range_to_string(value)
+            RedshiftColumn.range_to_string(value)
           when NilClass
             if column.array && array_member
               'NULL'
@@ -97,23 +97,23 @@ module ActiveRecord
             end
           when Array
             case column.sql_type
-            when 'point' then PostgreSQLColumn.point_to_string(value)
+            when 'point' then RedshiftColumn.point_to_string(value)
             else
               return super(value, column) unless column.array
-              PostgreSQLColumn.array_to_string(value, column, self)
+              RedshiftColumn.array_to_string(value, column, self)
             end
           when String
             return super(value, column) unless 'bytea' == column.sql_type
             { :value => value, :format => 1 }
           when Hash
             case column.sql_type
-            when 'hstore' then PostgreSQLColumn.hstore_to_string(value)
-            when 'json' then PostgreSQLColumn.json_to_string(value)
+            when 'hstore' then RedshiftColumn.hstore_to_string(value)
+            when 'json' then RedshiftColumn.json_to_string(value)
             else super(value, column)
             end
           when IPAddr
             return super(value, column) unless ['inet','cidr'].include? column.sql_type
-            PostgreSQLColumn.cidr_to_string(value)
+            RedshiftColumn.cidr_to_string(value)
           else
             super(value, column)
           end

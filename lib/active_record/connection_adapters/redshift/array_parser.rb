@@ -1,6 +1,6 @@
 module ActiveRecord
   module ConnectionAdapters
-    class PostgreSQLColumn < Column
+    class RedshiftColumn < Column
       module ArrayParser
         private
           # Loads pg_array_parser if available. String parsing can be
