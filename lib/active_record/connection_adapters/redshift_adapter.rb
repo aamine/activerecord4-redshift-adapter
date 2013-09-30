@@ -595,7 +595,7 @@ module ActiveRecord
       end
 
       def supports_insert_with_returning?
-        true
+        false
       end
 
       def supports_ddl_transactions?

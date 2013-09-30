@@ -59,7 +59,7 @@ module ActiveRecord
           end
 
           if pk && use_insert_returning?
-            select_value("#{sql} RETURNING #{quote_column_name(pk)}")
+            select_value("#{sql}")
           elsif pk
             super
             last_insert_id_value(sequence_name || default_sequence_name(table_ref, pk))
@@ -173,7 +173,7 @@ module ActiveRecord
           end
 
           if pk && use_insert_returning?
-            sql = "#{sql} RETURNING #{quote_column_name(pk)}"
+            sql = "#{sql}"
           end
 
           [sql, binds]
