@@ -392,7 +392,7 @@ module ActiveRecord
       ADAPTER_NAME = 'Redshift'
 
       NATIVE_DATABASE_TYPES = {
-        primary_key: "serial primary key",
+        primary_key: "identity primary key",
         string:      { name: "character varying", limit: 255 },
         text:        { name: "text" },
         integer:     { name: "integer" },
