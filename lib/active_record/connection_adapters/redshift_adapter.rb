@@ -249,8 +249,7 @@ module ActiveRecord
     #   <tt>SET client_min_messages TO <min_messages></tt> call on the connection.
     # * <tt>:variables</tt> - An optional hash of additional parameters that
     #   will be used in <tt>SET SESSION key = val</tt> calls on the connection.
-    # * <tt>:insert_returning</tt> - An optional boolean to control the use or <tt>RETURNING</tt> for <tt>INSERT</tt> statements
-    #   defaults to true.
+    # * <tt>:insert_returning</tt> - does nothing for Redshift.
     #
     # Any further options are used as connection parameters to libpq. See
     # http://www.postgresql.org/docs/9.1/static/libpq-connect.html for the
@@ -546,7 +545,7 @@ module ActiveRecord
 
         initialize_type_map
         @local_tz = execute('SHOW TIME ZONE', 'SCHEMA').first["TimeZone"]
-        @use_insert_returning = @config.key?(:insert_returning) ? self.class.type_cast_config_to_boolean(@config[:insert_returning]) : true
+        @use_insert_returning = @config.key?(:insert_returning) ? self.class.type_cast_config_to_boolean(@config[:insert_returning]) : false
       end
 
       # Clears the prepared statements cache.
@@ -595,7 +594,7 @@ module ActiveRecord
       end
 
       def supports_insert_with_returning?
-        true
+        false
       end
 
       def supports_ddl_transactions?
@@ -604,7 +603,7 @@ module ActiveRecord
 
       # Returns true, since this connection adapter supports savepoints.
       def supports_savepoints?
-        true
+        false
       end
 
       # Returns true.
@@ -614,42 +613,26 @@ module ActiveRecord
 
       # Returns true if pg > 9.2
       def supports_extensions?
-        postgresql_version >= 90200
+        false
       end
 
       # Range datatypes weren't introduced until PostgreSQL 9.2
       def supports_ranges?
-        postgresql_version >= 90200
+        false
       end
 
       def enable_extension(name)
-        exec_query("CREATE EXTENSION IF NOT EXISTS \"#{name}\"").tap {
-          reload_type_map
-        }
       end
 
       def disable_extension(name)
-        exec_query("DROP EXTENSION IF EXISTS \"#{name}\" CASCADE").tap {
-          reload_type_map
-        }
       end
 
       def extension_enabled?(name)
-        if supports_extensions?
-          res = exec_query "SELECT EXISTS(SELECT * FROM pg_available_extensions WHERE name = '#{name}' AND installed_version IS NOT NULL)",
-            'SCHEMA'
-          res.column_types['exists'].type_cast res.rows.first.first
-        end
+        false
       end
 
-      def extensions
-        if supports_extensions?
-          res = exec_query "SELECT extname from pg_extension", "SCHEMA"
-          res.rows.map { |r| res.column_types['extname'].type_cast r.first }
-        else
-          super
-        end
-      end
+      #def extensions
+      #end
 
       # Returns the configured supported identifier length supported by PostgreSQL
       def table_alias_length
@@ -682,7 +665,7 @@ module ActiveRecord
       end
 
       def use_insert_returning?
-        @use_insert_returning
+        false
       end
 
       def valid_type?(type)
