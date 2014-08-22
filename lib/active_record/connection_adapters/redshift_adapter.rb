@@ -606,6 +606,10 @@ module ActiveRecord
         false
       end
 
+      def supports_import?
+        true
+      end
+
       # Returns true.
       def supports_explain?
         true
