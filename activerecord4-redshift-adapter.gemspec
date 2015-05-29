@@ -7,7 +7,7 @@ Gem::Specification.new do |s|
   s.license = 'MIT'
 
   s.author = ['Minero Aoki']
-  s.email = 'mineroaoki@gmail.com'
+  s.email = 'aamine@loveruby.net'
   s.homepage = 'http://github.com/aamine/activerecord4-redshift-adapter'
 
   s.files = Dir.glob(['LICENSE', 'README.md', 'lib/**/*.rb'])
@@ -15,5 +15,5 @@ Gem::Specification.new do |s|
 
   s.required_ruby_version = '>= 2.0.0'
   s.add_dependency 'pg'
-  s.add_dependency 'activerecord', '>= 4.0.0'
+  s.add_dependency 'activerecord', ['>= 4.0.0', '< 4.2.0']
 end
