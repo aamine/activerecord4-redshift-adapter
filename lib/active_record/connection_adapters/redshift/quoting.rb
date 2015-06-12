@@ -1,6 +1,6 @@
 module ActiveRecord
   module ConnectionAdapters
-    module PostgreSQL
+    module Redshift
       module Quoting
         # Escapes binary strings for bytea input to the database.
         def escape_bytea(value)
@@ -70,14 +70,6 @@ module ActiveRecord
           case value
           when Type::Binary::Data
             "'#{escape_bytea(value.to_s)}'"
-          when OID::Xml::Data
-            "xml '#{quote_string(value.to_s)}'"
-          when OID::Bit::Data
-            if value.binary?
-              "B'#{value}'"
-            elsif value.hex?
-              "X'#{value}'"
-            end
           when Float
             if value.infinite? || value.nan?
               "'#{value}'"
@@ -96,8 +88,6 @@ module ActiveRecord
             # See http://deveiate.org/code/pg/PGconn.html#method-i-exec_prepared-doc
             # for more information
             { value: value.to_s, format: 1 }
-          when OID::Xml::Data, OID::Bit::Data
-            value.to_s
           else
             super
           end

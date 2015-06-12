@@ -1,6 +1,6 @@
 module ActiveRecord
   module ConnectionAdapters
-    module PostgreSQL
+    module Redshift
       module OID # :nodoc:
         # This class uses the data from PostgreSQL pg_type table to build
         # the OID -> Type mapping.
@@ -22,58 +22,12 @@ module ActiveRecord
             composites, nodes = nodes.partition { |row| row['typelem'].to_i != 0 }
 
             mapped.each     { |row| register_mapped_type(row)    }
-            enums.each      { |row| register_enum_type(row)      }
-            domains.each    { |row| register_domain_type(row)    }
-            arrays.each     { |row| register_array_type(row)     }
-            ranges.each     { |row| register_range_type(row)     }
-            composites.each { |row| register_composite_type(row) }
-          end
-
-          def query_conditions_for_initial_load(type_map)
-            known_type_names = type_map.keys.map { |n| "'#{n}'" }
-            known_type_types = %w('r' 'e' 'd')
-            <<-SQL % [known_type_names.join(", "), known_type_types.join(", ")]
-              WHERE
-                t.typname IN (%s)
-                OR t.typtype IN (%s)
-                OR t.typinput::varchar = 'array_in'
-                OR t.typelem != 0
-            SQL
           end
 
           private
+
           def register_mapped_type(row)
             alias_type row['oid'], row['typname']
-          end
-
-          def register_enum_type(row)
-            register row['oid'], OID::Enum.new
-          end
-
-          def register_array_type(row)
-            register_with_subtype(row['oid'], row['typelem'].to_i) do |subtype|
-              OID::Array.new(subtype, row['typdelim'])
-            end
-          end
-
-          def register_range_type(row)
-            register_with_subtype(row['oid'], row['rngsubtype'].to_i) do |subtype|
-              OID::Range.new(subtype, row['typname'].to_sym)
-            end
-          end
-
-          def register_domain_type(row)
-            if base_type = @store.lookup(row["typbasetype"].to_i)
-              register row['oid'], base_type
-            else
-              warn "unknown base type (OID: #{row["typbasetype"]}) for domain #{row["typname"]}."
-            end
-          end
-
-          def register_composite_type(row)
-            if subtype = @store.lookup(row['typelem'].to_i)
-              register row['oid'], OID::Vector.new(row['typdelim'], subtype)
-            end
           end
 
           def register(oid, oid_type = nil, &block)

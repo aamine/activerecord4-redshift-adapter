@@ -1,6 +1,6 @@
 module ActiveRecord
   module ConnectionAdapters
-    module PostgreSQL
+    module Redshift
       class SchemaCreation < AbstractAdapter::SchemaCreation
         private
 
@@ -126,58 +126,12 @@ module ActiveRecord
         end
 
         def index_name_exists?(table_name, index_name, default)
-          exec_query(<<-SQL, 'SCHEMA').rows.first[0].to_i > 0
-            SELECT COUNT(*)
-            FROM pg_class t
-            INNER JOIN pg_index d ON t.oid = d.indrelid
-            INNER JOIN pg_class i ON d.indexrelid = i.oid
-            WHERE i.relkind = 'i'
-              AND i.relname = '#{index_name}'
-              AND t.relname = '#{table_name}'
-              AND i.relnamespace IN (SELECT oid FROM pg_namespace WHERE nspname = ANY (current_schemas(false)) )
-          SQL
+          false
         end
 
         # Returns an array of indexes for the given table.
         def indexes(table_name, name = nil)
-           result = query(<<-SQL, 'SCHEMA')
-             SELECT distinct i.relname, d.indisunique, d.indkey, pg_get_indexdef(d.indexrelid), t.oid
-             FROM pg_class t
-             INNER JOIN pg_index d ON t.oid = d.indrelid
-             INNER JOIN pg_class i ON d.indexrelid = i.oid
-             WHERE i.relkind = 'i'
-               AND d.indisprimary = 'f'
-               AND t.relname = '#{table_name}'
-               AND i.relnamespace IN (SELECT oid FROM pg_namespace WHERE nspname = ANY (current_schemas(false)) )
-            ORDER BY i.relname
-          SQL
-
-          result.map do |row|
-            index_name = row[0]
-            unique = row[1] == 't'
-            indkey = row[2].split(" ")
-            inddef = row[3]
-            oid = row[4]
-
-            columns = Hash[query(<<-SQL, "SCHEMA")]
-            SELECT a.attnum, a.attname
-            FROM pg_attribute a
-            WHERE a.attrelid = #{oid}
-            AND a.attnum IN (#{indkey.join(",")})
-            SQL
-
-            column_names = columns.values_at(*indkey).compact
-
-            unless column_names.empty?
-              # add info on sort order for columns (only desc order is explicitly specified, asc is the default)
-              desc_order_columns = inddef.scan(/(\w+) DESC/).flatten
-              orders = desc_order_columns.any? ? Hash[desc_order_columns.map {|order_column| [order_column, :desc]}] : {}
-              where = inddef.scan(/WHERE (.+)$/).flatten[0]
-              using = inddef.scan(/USING (.+?) /).flatten[0].to_sym
-
-              IndexDefinition.new(table_name, index_name, unique, column_names, [], orders, where, nil, using)
-            end
-          end.compact
+          []
         end
 
         # Returns the list of all column definitions for a table.
@@ -192,7 +146,7 @@ module ActiveRecord
         end
 
         def new_column(name, default, cast_type, sql_type = nil, null = true, default_function = nil) # :nodoc:
-          PostgreSQLColumn.new(name, default, cast_type, sql_type, null, default_function)
+          RedshiftColumn.new(name, default, cast_type, sql_type, null, default_function)
         end
 
         # Returns the current database name.
@@ -265,23 +219,13 @@ module ActiveRecord
           @schema_search_path ||= query('SHOW search_path', 'SCHEMA')[0][0]
         end
 
-        # Returns the current client message level.
-        def client_min_messages
-          query('SHOW client_min_messages', 'SCHEMA')[0][0]
-        end
-
-        # Set the client message level.
-        def client_min_messages=(level)
-          execute("SET client_min_messages TO '#{level}'", 'SCHEMA')
-        end
-
         # Returns the sequence name for a table's primary key or some other specified key.
         def default_sequence_name(table_name, pk = nil) #:nodoc:
           result = serial_sequence(table_name, pk || 'id')
           return nil unless result
           Utils.extract_schema_qualified_name(result).to_s
         rescue ActiveRecord::StatementInvalid
-          PostgreSQL::Name.new(nil, "#{table_name}_#{pk || 'id'}_seq").to_s
+          Redshift::Name.new(nil, "#{table_name}_#{pk || 'id'}_seq").to_s
         end
 
         def serial_sequence(table, column)
@@ -387,11 +331,12 @@ module ActiveRecord
         # Returns just a table's primary key
         def primary_key(table)
           pks = exec_query(<<-end_sql, 'SCHEMA').rows
-            SELECT attr.attname
+            SELECT DISTINCT attr.attname
             FROM pg_attribute attr
+            INNER JOIN pg_depend dep ON attr.attrelid = dep.refobjid AND attr.attnum = dep.refobjsubid
             INNER JOIN pg_constraint cons ON attr.attrelid = cons.conrelid AND attr.attnum = any(cons.conkey)
             WHERE cons.contype = 'p'
-              AND cons.conrelid = '#{quote_table_name(table)}'::regclass
+              AND dep.refobjid = '#{quote_table_name(table)}'::regclass
           end_sql
           return nil unless pks.count == 1
           pks[0][0]
@@ -406,16 +351,6 @@ module ActiveRecord
         def rename_table(table_name, new_name)
           clear_cache!
           execute "ALTER TABLE #{quote_table_name(table_name)} RENAME TO #{quote_table_name(new_name)}"
-          pk, seq = pk_and_sequence_for(new_name)
-          if seq && seq.identifier == "#{table_name}_#{pk}_seq"
-            new_seq = "#{new_name}_#{pk}_seq"
-            idx = "#{table_name}_pkey"
-            new_idx = "#{new_name}_pkey"
-            execute "ALTER TABLE #{quote_table_name(seq)} RENAME TO #{quote_table_name(new_seq)}"
-            execute "ALTER INDEX #{quote_table_name(idx)} RENAME TO #{quote_table_name(new_idx)}"
-          end
-
-          rename_table_indexes(table_name, new_name)
         end
 
         def add_column(table_name, column_name, type, options = {}) #:nodoc:
@@ -473,18 +408,12 @@ module ActiveRecord
         end
 
         def add_index(table_name, column_name, options = {}) #:nodoc:
-          index_name, index_type, index_columns, index_options, index_algorithm, index_using = add_index_options(table_name, column_name, options)
-          execute "CREATE #{index_type} INDEX #{index_algorithm} #{quote_column_name(index_name)} ON #{quote_table_name(table_name)} #{index_using} (#{index_columns})#{index_options}"
         end
 
         def remove_index!(table_name, index_name) #:nodoc:
-          execute "DROP INDEX #{quote_table_name(index_name)}"
         end
 
         def rename_index(table_name, old_name, new_name)
-          validate_index_length!(table_name, new_name)
-
-          execute "ALTER INDEX #{quote_column_name(old_name)} RENAME TO #{quote_table_name(new_name)}"
         end
 
         def foreign_keys(table_name)
@@ -531,20 +460,6 @@ module ActiveRecord
         # Maps logical Rails types to PostgreSQL-specific data types.
         def type_to_sql(type, limit = nil, precision = nil, scale = nil)
           case type.to_s
-          when 'binary'
-            # PostgreSQL doesn't support limits on binary (bytea) columns.
-            # The hard limit is 1Gb, because of a 32-bit size field, and TOAST.
-            case limit
-            when nil, 0..0x3fffffff; super(type)
-            else raise(ActiveRecordError, "No binary type has byte size #{limit}.")
-            end
-          when 'text'
-            # PostgreSQL doesn't support limits on text columns.
-            # The hard limit is 1Gb, according to section 8.3 in the manual.
-            case limit
-            when nil, 0..0x3fffffff; super(type)
-            else raise(ActiveRecordError, "The limit on text can be at most 1GB - 1byte.")
-            end
           when 'integer'
             return 'integer' unless limit
 

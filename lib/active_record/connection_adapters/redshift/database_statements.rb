@@ -1,6 +1,6 @@
 module ActiveRecord
   module ConnectionAdapters
-    module PostgreSQL
+    module Redshift
       module DatabaseStatements
         def explain(arel, binds = [])
           sql = "EXPLAIN #{to_sql(arel, binds)}"

@@ -1,6 +1,6 @@
 module ActiveRecord
   module ConnectionAdapters
-    module PostgreSQL
+    module Redshift
       # Value Object to hold a schema qualified name.
       # This is usually the name of a PostgreSQL relation but it can also represent
       # schema qualified type names. +schema+ and +identifier+ are unquoted to prevent
@@ -69,7 +69,7 @@ module ActiveRecord
             table = schema
             schema = nil
           end
-          PostgreSQL::Name.new(schema, table)
+          Redshift::Name.new(schema, table)
         end
       end
     end

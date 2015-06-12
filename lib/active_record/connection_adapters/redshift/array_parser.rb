@@ -1,6 +1,6 @@
 module ActiveRecord
   module ConnectionAdapters
-    module PostgreSQL
+    module Redshift
       module ArrayParser # :nodoc:
 
         DOUBLE_QUOTE = '"'
