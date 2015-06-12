@@ -1,18 +1,12 @@
 module ActiveRecord
   module ConnectionAdapters
-    class RedshiftAdapter < AbstractAdapter
+    module Redshift
       class SchemaCreation < AbstractAdapter::SchemaCreation
         private
 
-        def visit_AddColumn(o)
-          sql_type = type_to_sql(o.type.to_sym, o.limit, o.precision, o.scale)
-          sql = "ADD COLUMN #{quote_column_name(o.name)} #{sql_type}"
-          add_column_options!(sql, column_options(o))
-        end
-
         def visit_ColumnDefinition(o)
           sql = super
-          if o.primary_key? && o.type == :uuid
+          if o.primary_key? && o.type != :primary_key
             sql << " PRIMARY KEY "
             add_column_options!(sql, column_options(o))
           end
@@ -31,10 +25,14 @@ module ActiveRecord
             super
           end
         end
-      end
 
-      def schema_creation
-        SchemaCreation.new self
+        def type_for_column(column)
+          if column.array
+            @conn.lookup_cast_type("#{column.sql_type}[]")
+          else
+            super
+          end
+        end
       end
 
       module SchemaStatements
@@ -46,7 +44,7 @@ module ActiveRecord
         end
 
         # Create a new PostgreSQL database. Options include <tt>:owner</tt>, <tt>:template</tt>,
-        # <tt>:encoding</tt>, <tt>:collation</tt>, <tt>:ctype</tt>,
+        # <tt>:encoding</tt> (defaults to utf8), <tt>:collation</tt>, <tt>:ctype</tt>,
         # <tt>:tablespace</tt>, and <tt>:connection_limit</tt> (note that MySQL uses
         # <tt>:charset</tt> while PostgreSQL uses <tt>:encoding</tt>).
         #
@@ -56,8 +54,8 @@ module ActiveRecord
         def create_database(name, options = {})
           options = { encoding: 'utf8' }.merge!(options.symbolize_keys)
 
-          option_string = options.sum do |key, value|
-            case key
+          option_string = options.inject("") do |memo, (key, value)|
+            memo += case key
             when :owner
               " OWNER = \"#{value}\""
             when :template
@@ -90,7 +88,7 @@ module ActiveRecord
 
         # Returns the list of all tables in the schema search path or a specified schema.
         def tables(name = nil)
-          query(<<-SQL, 'SCHEMA').map { |row| "#{row[0]}.#{row[1]}" }
+          query(<<-SQL, 'SCHEMA').map { |row| row[0] }
             SELECT tablename
             FROM pg_tables
             WHERE schemaname = ANY (current_schemas(false))
@@ -101,20 +99,21 @@ module ActiveRecord
         # If the schema is not specified as part of +name+ then it will only find tables within
         # the current schema search path (regardless of permissions to access tables in other schemas)
         def table_exists?(name)
-          schema, table = Utils.extract_schema_and_table(name.to_s)
-          return false unless table
-
-          binds = [[nil, table]]
-          binds << [nil, schema] if schema
+          name = Utils.extract_schema_qualified_name(name.to_s)
+          return false unless name.identifier
 
           exec_query(<<-SQL, 'SCHEMA').rows.first[0].to_i > 0
               SELECT COUNT(*)
               FROM pg_class c
               LEFT JOIN pg_namespace n ON n.oid = c.relnamespace
-              WHERE c.relkind in ('v','r')
-              AND c.relname = '#{table.gsub(/(^"|"$)/,'')}'
-              AND n.nspname = #{schema ? "'#{schema}'" : 'ANY (current_schemas(false))'}
+              WHERE c.relkind IN ('r','v','m') -- (r)elation/table, (v)iew, (m)aterialized view
+              AND c.relname = '#{name.identifier}'
+              AND n.nspname = #{name.schema ? "'#{name.schema}'" : 'ANY (current_schemas(false))'}
           SQL
+        end
+
+        def drop_table(table_name, options = {})
+          execute "DROP TABLE #{quote_table_name(table_name)}#{' CASCADE' if options[:force] == :cascade}"
         end
 
         # Returns true if schema exists.
@@ -126,20 +125,28 @@ module ActiveRecord
           SQL
         end
 
+        def index_name_exists?(table_name, index_name, default)
+          false
+        end
+
         # Returns an array of indexes for the given table.
         def indexes(table_name, name = nil)
-           []
+          []
         end
 
         # Returns the list of all column definitions for a table.
         def columns(table_name)
           # Limit, precision, and scale are all handled by the superclass.
           column_definitions(table_name).map do |column_name, type, default, notnull, oid, fmod|
-            oid = OID::TYPE_MAP.fetch(oid.to_i, fmod.to_i) {
-              OID::Identity.new
-            }
-            RedshiftColumn.new(column_name, default, oid, type, notnull == 'f')
+            oid = get_oid_type(oid.to_i, fmod.to_i, column_name, type)
+            default_value = extract_value_from_default(oid, default)
+            default_function = extract_default_function(default_value, default)
+            new_column(column_name, default_value, oid, type, notnull == 'f', default_function)
           end
+        end
+
+        def new_column(name, default, cast_type, sql_type = nil, null = true, default_function = nil) # :nodoc:
+          RedshiftColumn.new(name, default, cast_type, sql_type, null, default_function)
         end
 
         # Returns the current database name.
@@ -216,9 +223,9 @@ module ActiveRecord
         def default_sequence_name(table_name, pk = nil) #:nodoc:
           result = serial_sequence(table_name, pk || 'id')
           return nil unless result
-          result.split('.').last
+          Utils.extract_schema_qualified_name(result).to_s
         rescue ActiveRecord::StatementInvalid
-          "#{table_name}_#{pk || 'id'}_seq"
+          Redshift::Name.new(nil, "#{table_name}_#{pk || 'id'}_seq").to_s
         end
 
         def serial_sequence(table, column)
@@ -226,6 +233,23 @@ module ActiveRecord
             SELECT pg_get_serial_sequence('#{table}', '#{column}')
           eosql
           result.rows.first.first
+        end
+
+        # Sets the sequence of a table's primary key to the specified value.
+        def set_pk_sequence!(table, value) #:nodoc:
+          pk, sequence = pk_and_sequence_for(table)
+
+          if pk
+            if sequence
+              quoted_sequence = quote_table_name(sequence)
+
+              select_value <<-end_sql, 'SCHEMA'
+              SELECT setval('#{quoted_sequence}', #{value})
+              end_sql
+            else
+              @logger.warn "#{table} has primary key #{pk} with no default sequence" if @logger
+            end
+          end
         end
 
         # Resets the sequence of a table's primary key to the maximum value.
@@ -255,25 +279,29 @@ module ActiveRecord
           # First try looking for a sequence with a dependency on the
           # given table's primary key.
           result = query(<<-end_sql, 'SCHEMA')[0]
-            SELECT attr.attname, seq.relname
+            SELECT attr.attname, nsp.nspname, seq.relname
             FROM pg_class      seq,
                  pg_attribute  attr,
                  pg_depend     dep,
-                 pg_constraint cons
+                 pg_constraint cons,
+                 pg_namespace  nsp
             WHERE seq.oid           = dep.objid
               AND seq.relkind       = 'S'
               AND attr.attrelid     = dep.refobjid
               AND attr.attnum       = dep.refobjsubid
               AND attr.attrelid     = cons.conrelid
               AND attr.attnum       = cons.conkey[1]
+              AND seq.relnamespace  = nsp.oid
               AND cons.contype      = 'p'
+              AND dep.classid       = 'pg_class'::regclass
               AND dep.refobjid      = '#{quote_table_name(table)}'::regclass
           end_sql
 
           if result.nil? or result.empty?
             result = query(<<-end_sql, 'SCHEMA')[0]
-              SELECT attr.attname,
+              SELECT attr.attname, nsp.nspname,
                 CASE
+                  WHEN pg_get_expr(def.adbin, def.adrelid) !~* 'nextval' THEN NULL
                   WHEN split_part(pg_get_expr(def.adbin, def.adrelid), '''', 2) ~ '.' THEN
                     substr(split_part(pg_get_expr(def.adbin, def.adrelid), '''', 2),
                            strpos(split_part(pg_get_expr(def.adbin, def.adrelid), '''', 2), '.')+1)
@@ -283,52 +311,49 @@ module ActiveRecord
               JOIN pg_attribute   attr ON (t.oid = attrelid)
               JOIN pg_attrdef     def  ON (adrelid = attrelid AND adnum = attnum)
               JOIN pg_constraint  cons ON (conrelid = adrelid AND adnum = conkey[1])
+              JOIN pg_namespace   nsp  ON (t.relnamespace = nsp.oid)
               WHERE t.oid = '#{quote_table_name(table)}'::regclass
                 AND cons.contype = 'p'
-                AND pg_get_expr(def.adbin, def.adrelid) ~* 'nextval'
+                AND pg_get_expr(def.adbin, def.adrelid) ~* 'nextval|uuid_generate'
             end_sql
           end
 
-          [result.first, result.last]
+          pk = result.shift
+          if result.last
+            [pk, PostgreSQL::Name.new(*result)]
+          else
+            [pk, nil]
+          end
         rescue
           nil
         end
 
         # Returns just a table's primary key
         def primary_key(table)
-          row = exec_query(<<-end_sql, 'SCHEMA').rows.first
+          pks = exec_query(<<-end_sql, 'SCHEMA').rows
             SELECT DISTINCT attr.attname
             FROM pg_attribute attr
             INNER JOIN pg_depend dep ON attr.attrelid = dep.refobjid AND attr.attnum = dep.refobjsubid
-            INNER JOIN pg_constraint cons ON attr.attrelid = cons.conrelid AND attr.attnum = cons.conkey[1]
+            INNER JOIN pg_constraint cons ON attr.attrelid = cons.conrelid AND attr.attnum = any(cons.conkey)
             WHERE cons.contype = 'p'
               AND dep.refobjid = '#{quote_table_name(table)}'::regclass
           end_sql
-
-          row && row.first
+          return nil unless pks.count == 1
+          pks[0][0]
         end
 
         # Renames a table.
-        # Also renames a table's primary key sequence if the sequence name matches the
-        # Active Record default.
+        # Also renames a table's primary key sequence if the sequence name exists and
+        # matches the Active Record default.
         #
         # Example:
         #   rename_table('octopuses', 'octopi')
         def rename_table(table_name, new_name)
           clear_cache!
           execute "ALTER TABLE #{quote_table_name(table_name)} RENAME TO #{quote_table_name(new_name)}"
-          pk, seq = pk_and_sequence_for(new_name)
-          if seq == "#{table_name}_#{pk}_seq"
-            new_seq = "#{new_name}_#{pk}_seq"
-            execute "ALTER TABLE #{quote_table_name(seq)} RENAME TO #{quote_table_name(new_seq)}"
-          end
-
-          rename_table_indexes(table_name, new_name)
         end
 
-        # Adds a new column to the named table.
-        # See TableDefinition#column for details of the options you can use.
-        def add_column(table_name, column_name, type, options = {})
+        def add_column(table_name, column_name, type, options = {}) #:nodoc:
           clear_cache!
           super
         end
@@ -337,8 +362,14 @@ module ActiveRecord
         def change_column(table_name, column_name, type, options = {})
           clear_cache!
           quoted_table_name = quote_table_name(table_name)
-
-          execute "ALTER TABLE #{quoted_table_name} ALTER COLUMN #{quote_column_name(column_name)} TYPE #{type_to_sql(type, options[:limit], options[:precision], options[:scale])}"
+          sql_type = type_to_sql(type, options[:limit], options[:precision], options[:scale])
+          sql_type << "[]" if options[:array]
+          sql = "ALTER TABLE #{quoted_table_name} ALTER COLUMN #{quote_column_name(column_name)} TYPE #{sql_type}"
+          sql << " USING #{options[:using]}" if options[:using]
+          if options[:cast_as]
+            sql << " USING CAST(#{quote_column_name(column_name)} AS #{type_to_sql(options[:cast_as], options[:limit], options[:precision], options[:scale])})"
+          end
+          execute sql
 
           change_column_default(table_name, column_name, options[:default]) if options_include_default?(options)
           change_column_null(table_name, column_name, options[:null], options[:default]) if options.key?(:null)
@@ -347,34 +378,79 @@ module ActiveRecord
         # Changes the default value of a table column.
         def change_column_default(table_name, column_name, default)
           clear_cache!
-          execute "ALTER TABLE #{quote_table_name(table_name)} ALTER COLUMN #{quote_column_name(column_name)} SET DEFAULT #{quote(default)}"
+          column = column_for(table_name, column_name)
+          return unless column
+
+          alter_column_query = "ALTER TABLE #{quote_table_name(table_name)} ALTER COLUMN #{quote_column_name(column_name)} %s"
+          if default.nil?
+            # <tt>DEFAULT NULL</tt> results in the same behavior as <tt>DROP DEFAULT</tt>. However, PostgreSQL will
+            # cast the default to the columns type, which leaves us with a default like "default NULL::character varying".
+            execute alter_column_query % "DROP DEFAULT"
+          else
+            execute alter_column_query % "SET DEFAULT #{quote_default_value(default, column)}"
+          end
         end
 
         def change_column_null(table_name, column_name, null, default = nil)
           clear_cache!
           unless null || default.nil?
-            execute("UPDATE #{quote_table_name(table_name)} SET #{quote_column_name(column_name)}=#{quote(default)} WHERE #{quote_column_name(column_name)} IS NULL")
+            column = column_for(table_name, column_name)
+            execute("UPDATE #{quote_table_name(table_name)} SET #{quote_column_name(column_name)}=#{quote_default_value(default, column)} WHERE #{quote_column_name(column_name)} IS NULL") if column
           end
           execute("ALTER TABLE #{quote_table_name(table_name)} ALTER #{quote_column_name(column_name)} #{null ? 'DROP' : 'SET'} NOT NULL")
         end
 
         # Renames a column in a table.
-        def rename_column(table_name, column_name, new_column_name)
+        def rename_column(table_name, column_name, new_column_name) #:nodoc:
           clear_cache!
           execute "ALTER TABLE #{quote_table_name(table_name)} RENAME COLUMN #{quote_column_name(column_name)} TO #{quote_column_name(new_column_name)}"
           rename_column_indexes(table_name, column_name, new_column_name)
         end
 
-        def add_index(*args)
-          # ignore
+        def add_index(table_name, column_name, options = {}) #:nodoc:
         end
 
         def remove_index!(table_name, index_name) #:nodoc:
-          # ignore
         end
 
         def rename_index(table_name, old_name, new_name)
-          # ignore
+        end
+
+        def foreign_keys(table_name)
+          fk_info = select_all <<-SQL.strip_heredoc
+            SELECT t2.oid::regclass::text AS to_table, a1.attname AS column, a2.attname AS primary_key, c.conname AS name, c.confupdtype AS on_update, c.confdeltype AS on_delete
+            FROM pg_constraint c
+            JOIN pg_class t1 ON c.conrelid = t1.oid
+            JOIN pg_class t2 ON c.confrelid = t2.oid
+            JOIN pg_attribute a1 ON a1.attnum = c.conkey[1] AND a1.attrelid = t1.oid
+            JOIN pg_attribute a2 ON a2.attnum = c.confkey[1] AND a2.attrelid = t2.oid
+            JOIN pg_namespace t3 ON c.connamespace = t3.oid
+            WHERE c.contype = 'f'
+              AND t1.relname = #{quote(table_name)}
+              AND t3.nspname = ANY (current_schemas(false))
+            ORDER BY c.conname
+          SQL
+
+          fk_info.map do |row|
+            options = {
+              column: row['column'],
+              name: row['name'],
+              primary_key: row['primary_key']
+            }
+
+            options[:on_delete] = extract_foreign_key_action(row['on_delete'])
+            options[:on_update] = extract_foreign_key_action(row['on_update'])
+
+            ForeignKeyDefinition.new(table_name, row['to_table'], options)
+          end
+        end
+
+        def extract_foreign_key_action(specifier) # :nodoc:
+          case specifier
+          when 'c'; :cascade
+          when 'n'; :nullify
+          when 'r'; :restrict
+          end
         end
 
         def index_name_length
@@ -384,13 +460,6 @@ module ActiveRecord
         # Maps logical Rails types to PostgreSQL-specific data types.
         def type_to_sql(type, limit = nil, precision = nil, scale = nil)
           case type.to_s
-          when 'binary'
-            # PostgreSQL doesn't support limits on binary (bytea) columns.
-            # The hard limit is 1Gb, because of a 32-bit size field, and TOAST.
-            case limit
-            when nil, 0..0x3fffffff; super(type)
-            else raise(ActiveRecordError, "No binary type has byte size #{limit}.")
-            end
           when 'integer'
             return 'integer' unless limit
 
@@ -412,22 +481,18 @@ module ActiveRecord
           end
         end
 
-        # Returns a SELECT DISTINCT clause for a given set of columns and a given ORDER BY clause.
-        #
         # PostgreSQL requires the ORDER BY columns in the select list for distinct queries, and
         # requires that the ORDER BY include the distinct column.
-        #
-        #   distinct("posts.id", ["posts.created_at desc"])
-        #   # => "DISTINCT posts.id, posts.created_at AS alias_0"
-        def distinct(columns, orders) #:nodoc:
-          order_columns = orders.map{ |s|
+        def columns_for_distinct(columns, orders) #:nodoc:
+          order_columns = orders.reject(&:blank?).map{ |s|
               # Convert Arel node to string
               s = s.to_sql unless s.is_a?(String)
               # Remove any ASC/DESC modifiers
-              s.gsub(/\s+(ASC|DESC)\s*(NULLS\s+(FIRST|LAST)\s*)?/i, '')
+              s.gsub(/\s+(?:ASC|DESC)\b/i, '')
+               .gsub(/\s+NULLS\s+(?:FIRST|LAST)\b/i, '')
             }.reject(&:blank?).map.with_index { |column, i| "#{column} AS alias_#{i}" }
 
-          [super].concat(order_columns).join(', ')
+          [super, *order_columns].join(', ')
         end
       end
     end
