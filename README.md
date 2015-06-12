@@ -12,6 +12,13 @@ I want to use Rails 4 with Redshift NOW, so I wrote this driver.
 If anybody write better Redshift driver which works with ActiveRecord 4,
 I abandon this driver.
 
+Supported Version
+-------------------
+
+- Version 0.2.x supports ActiveRecord (Rails) 4.2.
+- Version 0.1.x supports ActiveRecord (Rails) 4.1.
+
+
 Usage
 -------------------
 
