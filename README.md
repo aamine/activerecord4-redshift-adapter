@@ -17,7 +17,7 @@ Usage
 
 In Gemfile
 ```
-gem 'activerecord4-redshift-adapter', github: 'aamine/activerecord4-redshift-adapter'
+gem 'activerecord4-redshift-adapter', '~> 0.2.0'
 ```
 
 In database.yml
