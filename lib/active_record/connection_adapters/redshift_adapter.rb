@@ -76,9 +76,9 @@ module ActiveRecord
       ADAPTER_NAME = 'Redshift'.freeze
 
       NATIVE_DATABASE_TYPES = {
-        primary_key: "integer primary key",
-        string:      { name: "character varying" },
-        text:        { name: "text" },
+        primary_key: "integer identity primary key",
+        string:      { name: "varchar" },
+        text:        { name: "varchar" },
         integer:     { name: "integer" },
         float:       { name: "float" },
         decimal:     { name: "decimal" },
@@ -86,8 +86,8 @@ module ActiveRecord
         time:        { name: "time" },
         date:        { name: "date" },
         bigint:      { name: "bigint" },
-        json:        { name: "json" },
-        jsonb:       { name: "jsonb" }
+        binary:      { name: "boolean" },
+        boolean:     { name: "boolean" },
       }
 
       OID = Redshift::OID #:nodoc:
@@ -400,12 +400,6 @@ module ActiveRecord
           m.alias_type 'timestamptz', 'timestamp'
           m.register_type 'date', OID::Date.new
           m.register_type 'time', OID::Time.new
-
-          m.register_type 'json', OID::Json.new
-          m.register_type 'jsonb', OID::Jsonb.new
-
-          # FIXME: why are we keeping these types as strings?
-          m.alias_type 'interval', 'varchar'
 
           m.register_type 'timestamp' do |_, _, sql_type|
             precision = extract_precision(sql_type)
