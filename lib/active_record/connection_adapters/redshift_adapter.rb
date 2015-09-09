@@ -86,7 +86,6 @@ module ActiveRecord
         time:        { name: "time" },
         date:        { name: "date" },
         bigint:      { name: "bigint" },
-        binary:      { name: "boolean" },
         boolean:     { name: "boolean" },
       }
 
@@ -397,6 +396,7 @@ module ActiveRecord
           m.alias_type 'char', 'varchar'
           m.alias_type 'name', 'varchar'
           m.alias_type 'bpchar', 'varchar'
+          m.register_type 'bool', Type::Boolean.new
           m.alias_type 'timestamptz', 'timestamp'
           m.register_type 'date', OID::Date.new
           m.register_type 'time', OID::Time.new
