@@ -14,10 +14,6 @@ module ActiveRecord
         end
 
         def add_column_options!(sql, options)
-          if options[:array] || options[:column].try(:array)
-            sql << '[]'
-          end
-
           column = options.fetch(:column) { return super }
           if column.type == :uuid && options[:default] =~ /\(\)/
             sql << " DEFAULT #{options[:default]}"
@@ -58,18 +54,6 @@ module ActiveRecord
             memo += case key
             when :owner
               " OWNER = \"#{value}\""
-            when :template
-              " TEMPLATE = \"#{value}\""
-            when :encoding
-              " ENCODING = '#{value}'"
-            when :collation
-              " LC_COLLATE = '#{value}'"
-            when :ctype
-              " LC_CTYPE = '#{value}'"
-            when :tablespace
-              " TABLESPACE = \"#{value}\""
-            when :connection_limit
-              " CONNECTION LIMIT = #{value}"
             else
               ""
             end
@@ -83,7 +67,7 @@ module ActiveRecord
         # Example:
         #   drop_database 'matt_development'
         def drop_database(name) #:nodoc:
-          execute "DROP DATABASE IF EXISTS #{quote_table_name(name)}"
+          execute "DROP DATABASE #{quote_table_name(name)}"
         end
 
         # Returns the list of all tables in the schema search path or a specified schema.
@@ -167,18 +151,10 @@ module ActiveRecord
           end_sql
         end
 
-        # Returns the current database collation.
         def collation
-          query(<<-end_sql, 'SCHEMA')[0][0]
-            SELECT pg_database.datcollate FROM pg_database WHERE pg_database.datname LIKE '#{current_database}'
-          end_sql
         end
 
-        # Returns the current database ctype.
         def ctype
-          query(<<-end_sql, 'SCHEMA')[0][0]
-            SELECT pg_database.datctype FROM pg_database WHERE pg_database.datname LIKE '#{current_database}'
-          end_sql
         end
 
         # Returns an array of schema names.
@@ -235,97 +211,14 @@ module ActiveRecord
           result.rows.first.first
         end
 
-        # Sets the sequence of a table's primary key to the specified value.
         def set_pk_sequence!(table, value) #:nodoc:
-          pk, sequence = pk_and_sequence_for(table)
-
-          if pk
-            if sequence
-              quoted_sequence = quote_table_name(sequence)
-
-              select_value <<-end_sql, 'SCHEMA'
-              SELECT setval('#{quoted_sequence}', #{value})
-              end_sql
-            else
-              @logger.warn "#{table} has primary key #{pk} with no default sequence" if @logger
-            end
-          end
         end
 
-        # Resets the sequence of a table's primary key to the maximum value.
         def reset_pk_sequence!(table, pk = nil, sequence = nil) #:nodoc:
-          unless pk and sequence
-            default_pk, default_sequence = pk_and_sequence_for(table)
-
-            pk ||= default_pk
-            sequence ||= default_sequence
-          end
-
-          if @logger && pk && !sequence
-            @logger.warn "#{table} has primary key #{pk} with no default sequence"
-          end
-
-          if pk && sequence
-            quoted_sequence = quote_table_name(sequence)
-
-            select_value <<-end_sql, 'SCHEMA'
-              SELECT setval('#{quoted_sequence}', (SELECT COALESCE(MAX(#{quote_column_name pk})+(SELECT increment_by FROM #{quoted_sequence}), (SELECT min_value FROM #{quoted_sequence})) FROM #{quote_table_name(table)}), false)
-            end_sql
-          end
         end
 
-        # Returns a table's primary key and belonging sequence.
         def pk_and_sequence_for(table) #:nodoc:
-          # First try looking for a sequence with a dependency on the
-          # given table's primary key.
-          result = query(<<-end_sql, 'SCHEMA')[0]
-            SELECT attr.attname, nsp.nspname, seq.relname
-            FROM pg_class      seq,
-                 pg_attribute  attr,
-                 pg_depend     dep,
-                 pg_constraint cons,
-                 pg_namespace  nsp
-            WHERE seq.oid           = dep.objid
-              AND seq.relkind       = 'S'
-              AND attr.attrelid     = dep.refobjid
-              AND attr.attnum       = dep.refobjsubid
-              AND attr.attrelid     = cons.conrelid
-              AND attr.attnum       = cons.conkey[1]
-              AND seq.relnamespace  = nsp.oid
-              AND cons.contype      = 'p'
-              AND dep.classid       = 'pg_class'::regclass
-              AND dep.refobjid      = '#{quote_table_name(table)}'::regclass
-          end_sql
-
-          if result.nil? or result.empty?
-            result = query(<<-end_sql, 'SCHEMA')[0]
-              SELECT attr.attname, nsp.nspname,
-                CASE
-                  WHEN pg_get_expr(def.adbin, def.adrelid) !~* 'nextval' THEN NULL
-                  WHEN split_part(pg_get_expr(def.adbin, def.adrelid), '''', 2) ~ '.' THEN
-                    substr(split_part(pg_get_expr(def.adbin, def.adrelid), '''', 2),
-                           strpos(split_part(pg_get_expr(def.adbin, def.adrelid), '''', 2), '.')+1)
-                  ELSE split_part(pg_get_expr(def.adbin, def.adrelid), '''', 2)
-                END
-              FROM pg_class       t
-              JOIN pg_attribute   attr ON (t.oid = attrelid)
-              JOIN pg_attrdef     def  ON (adrelid = attrelid AND adnum = attnum)
-              JOIN pg_constraint  cons ON (conrelid = adrelid AND adnum = conkey[1])
-              JOIN pg_namespace   nsp  ON (t.relnamespace = nsp.oid)
-              WHERE t.oid = '#{quote_table_name(table)}'::regclass
-                AND cons.contype = 'p'
-                AND pg_get_expr(def.adbin, def.adrelid) ~* 'nextval|uuid_generate'
-            end_sql
-          end
-
-          pk = result.shift
-          if result.last
-            [pk, PostgreSQL::Name.new(*result)]
-          else
-            [pk, nil]
-          end
-        rescue
-          nil
+          [nil, nil]
         end
 
         # Returns just a table's primary key
@@ -418,7 +311,7 @@ module ActiveRecord
 
         def foreign_keys(table_name)
           fk_info = select_all <<-SQL.strip_heredoc
-            SELECT t2.oid::regclass::text AS to_table, a1.attname AS column, a2.attname AS primary_key, c.conname AS name, c.confupdtype AS on_update, c.confdeltype AS on_delete
+            SELECT t2.relname AS to_table, a1.attname AS column, a2.attname AS primary_key, c.conname AS name, c.confupdtype AS on_update, c.confdeltype AS on_delete
             FROM pg_constraint c
             JOIN pg_class t1 ON c.conrelid = t1.oid
             JOIN pg_class t2 ON c.confrelid = t2.oid

@@ -76,9 +76,9 @@ module ActiveRecord
       ADAPTER_NAME = 'Redshift'.freeze
 
       NATIVE_DATABASE_TYPES = {
-        primary_key: "integer primary key",
-        string:      { name: "character varying" },
-        text:        { name: "text" },
+        primary_key: "integer identity primary key",
+        string:      { name: "varchar" },
+        text:        { name: "varchar" },
         integer:     { name: "integer" },
         float:       { name: "float" },
         decimal:     { name: "decimal" },
@@ -86,8 +86,7 @@ module ActiveRecord
         time:        { name: "time" },
         date:        { name: "date" },
         bigint:      { name: "bigint" },
-        json:        { name: "json" },
-        jsonb:       { name: "jsonb" }
+        boolean:     { name: "boolean" },
       }
 
       OID = Redshift::OID #:nodoc:
@@ -105,14 +104,8 @@ module ActiveRecord
       # AbstractAdapter
       def prepare_column_options(column, types) # :nodoc:
         spec = super
-        spec[:array] = 'true' if column.respond_to?(:array) && column.array
         spec[:default] = "\"#{column.default_function}\"" if column.default_function
         spec
-      end
-
-      # Adds +:array+ as a valid migration key
-      def migration_keys
-        super + [:array]
       end
 
       # Returns +true+, since this connection adapter supports prepared statement
@@ -403,15 +396,10 @@ module ActiveRecord
           m.alias_type 'char', 'varchar'
           m.alias_type 'name', 'varchar'
           m.alias_type 'bpchar', 'varchar'
+          m.register_type 'bool', Type::Boolean.new
           m.alias_type 'timestamptz', 'timestamp'
           m.register_type 'date', OID::Date.new
           m.register_type 'time', OID::Time.new
-
-          m.register_type 'json', OID::Json.new
-          m.register_type 'jsonb', OID::Jsonb.new
-
-          # FIXME: why are we keeping these types as strings?
-          m.alias_type 'interval', 'varchar'
 
           m.register_type 'timestamp' do |_, _, sql_type|
             precision = extract_precision(sql_type)
