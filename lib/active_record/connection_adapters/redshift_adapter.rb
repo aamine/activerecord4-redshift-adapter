@@ -246,7 +246,7 @@ module ActiveRecord
         end
         session_auth = 'DEFAULT'
         @connection.query 'RESET ALL'
-        dealloc 'ALL'
+        @statements.clear if @statements
         @connection.query 'CLOSE ALL'
         configure_connection
       end
