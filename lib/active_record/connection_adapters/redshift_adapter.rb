@@ -244,7 +244,10 @@ module ActiveRecord
         unless @connection.transaction_status == ::PG::PQTRANS_IDLE
           @connection.query 'ROLLBACK'
         end
-        @connection.query 'DISCARD ALL'
+        session_auth = 'DEFAULT'
+        @connection.query 'RESET ALL'
+        dealloc 'ALL'
+        @connection.query 'CLOSE ALL'
         configure_connection
       end
 
