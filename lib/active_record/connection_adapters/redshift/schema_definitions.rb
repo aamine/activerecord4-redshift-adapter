@@ -11,7 +11,10 @@ module ActiveRecord
         end
       end
 
-      class ColumnDefinition < ActiveRecord::ConnectionAdapters::ColumnDefinition
+      class ColumnDefinition < Struct.new(*ActiveRecord::ConnectionAdapters::ColumnDefinition.members, :sortkey, :distkey)
+        def primary_key?
+          primary_key || type.to_sym == :primary_key
+        end
       end
 
       class TableDefinition < ActiveRecord::ConnectionAdapters::TableDefinition
@@ -50,6 +53,13 @@ module ActiveRecord
           options[:default] = options.fetch(:default, 'uuid_generate_v4()')
           options[:primary_key] = true
           column name, type, options
+        end
+
+        def new_column_definition(name, type, options) # :nodoc:
+          column = super
+          column.sortkey = options[:sortkey]
+          column.distkey = options[:distkey]
+          column
         end
 
         private
