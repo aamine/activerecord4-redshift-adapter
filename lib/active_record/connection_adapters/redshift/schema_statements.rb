@@ -14,8 +14,6 @@ module ActiveRecord
         end
 
         def add_column_options!(sql, options)
-          puts options.inspect
-
           if options[:sortkey]
             sql << " SORTKEY"
           end
