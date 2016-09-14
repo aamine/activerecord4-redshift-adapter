@@ -1,5 +1,4 @@
-activerecord4-redshift-adapter
-==============================
+# activerecord4-redshift-adapter
 
 Amazon Redshift adapter for ActiveRecord 4 (Rails 4).
 I copied PostgreSQL driver from ActiveRecord 4.0.0 and modified for Redshift.
@@ -12,8 +11,12 @@ I want to use Rails 4 with Redshift NOW, so I wrote this driver.
 If anybody write better Redshift driver which works with ActiveRecord 4,
 I abandon this driver.
 
-Usage
--------------------
+## Rails 5
+
+If you are searching Redshift adapter for Rails 5,
+use https://github.com/ConsultingMD/activerecord5-redshift-adapter
+
+## Usage
 
 For Rails 4.2, write following in Gemfile:
 ```
@@ -38,7 +41,6 @@ development:
   timeout: 5000
 ```
 
-License
----------
+## License
 
 MIT license (same as ActiveRecord)
