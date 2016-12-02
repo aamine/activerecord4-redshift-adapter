@@ -23,7 +23,7 @@ module ActiveRecord
         end
 
         def type_for_column(column)
-          if column.array
+          if column.respond_to?(:array) && column.array
             @conn.lookup_cast_type("#{column.sql_type}[]")
           else
             super
