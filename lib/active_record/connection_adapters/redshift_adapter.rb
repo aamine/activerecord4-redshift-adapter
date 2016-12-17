@@ -214,6 +214,11 @@ module ActiveRecord
         @use_insert_returning = @config.key?(:insert_returning) ? self.class.type_cast_config_to_boolean(@config[:insert_returning]) : false
       end
 
+      # For work with postgresql_cursor
+      def get_type_map
+        @type_map
+      end
+
       # Clears the prepared statements cache.
       def clear_cache!
         @statements.clear
