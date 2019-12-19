@@ -37,7 +37,7 @@ module ActiveRecord
 
         # Quotes column names for use in SQL queries.
         def quote_column_name(name) #:nodoc:
-          PGconn.quote_ident(name.to_s)
+          PG::Connection.quote_ident(name.to_s)
         end
 
         # Quote date/time values for use in SQL input. Includes microseconds
@@ -85,7 +85,7 @@ module ActiveRecord
           case value
           when Type::Binary::Data
             # Return a bind param hash with format as binary.
-            # See http://deveiate.org/code/pg/PGconn.html#method-i-exec_prepared-doc
+            # See http://deveiate.org/code/pg/PG::Connection.html#method-i-exec_prepared-doc
             # for more information
             { value: value.to_s, format: 1 }
           else
