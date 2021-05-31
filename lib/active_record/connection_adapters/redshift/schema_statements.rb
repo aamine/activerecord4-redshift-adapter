@@ -14,20 +14,22 @@ module ActiveRecord
         end
 
         def add_column_options!(sql, options)
-          column = options.fetch(:column) { return super }
-          if column.type == :uuid && options[:default] =~ /\(\)/
-            sql << " DEFAULT #{options[:default]}"
-          else
-            super
+          if options[:sortkey]
+            sql << " SORTKEY"
           end
+
+          if options[:distkey]
+            sql << " DISTKEY"
+          end
+
+          super
         end
 
-        def type_for_column(column)
-          if column.array
-            @conn.lookup_cast_type("#{column.sql_type}[]")
-          else
-            super
-          end
+        def column_options(o)
+          column_options = super
+          column_options[:sortkey] = o.sortkey
+          column_options[:distkey] = o.distkey
+          column_options
         end
       end
 
@@ -121,16 +123,16 @@ module ActiveRecord
         # Returns the list of all column definitions for a table.
         def columns(table_name)
           # Limit, precision, and scale are all handled by the superclass.
-          column_definitions(table_name).map do |column_name, type, default, notnull, oid, fmod|
+          column_definitions(table_name).map do |column_name, type, default, notnull, oid, fmod, sortkey, distkey|
             oid = get_oid_type(oid.to_i, fmod.to_i, column_name, type)
             default_value = extract_value_from_default(oid, default)
             default_function = extract_default_function(default_value, default)
-            new_column(column_name, default_value, oid, type, notnull == 'f', default_function)
+            new_column(column_name, default_value, oid, type, notnull == 'f', default_function, sortkey == '1', distkey)
           end
         end
 
-        def new_column(name, default, cast_type, sql_type = nil, null = true, default_function = nil) # :nodoc:
-          RedshiftColumn.new(name, default, cast_type, sql_type, null, default_function)
+        def new_column(name, default, cast_type, sql_type = nil, null = true, default_function = nil, sortkey = false, distkey = false) # :nodoc:
+          RedshiftColumn.new(name, default, cast_type, sql_type, null, default_function, sortkey, distkey)
         end
 
         # Returns the current database name.

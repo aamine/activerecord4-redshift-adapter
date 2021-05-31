@@ -631,7 +631,7 @@ module ActiveRecord
         def column_definitions(table_name) # :nodoc:
           exec_query(<<-end_sql, 'SCHEMA').rows
               SELECT a.attname, format_type(a.atttypid, a.atttypmod),
-                     pg_get_expr(d.adbin, d.adrelid), a.attnotnull, a.atttypid, a.atttypmod
+                     pg_get_expr(d.adbin, d.adrelid), a.attnotnull, a.atttypid, a.atttypmod, a.attsortkeyord, a.attisdistkey
                 FROM pg_attribute a LEFT JOIN pg_attrdef d
                   ON a.attrelid = d.adrelid AND a.attnum = d.adnum
                WHERE a.attrelid = '#{quote_table_name(table_name)}'::regclass
