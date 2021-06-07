@@ -629,7 +629,6 @@ module ActiveRecord
         #  - format_type includes the column size constraint, e.g. varchar(50)
         #  - ::regclass is a function that gives the id for a table name
         def column_definitions(table_name) # :nodoc:
-          puts "Yo Bro"
           exec_query(<<-end_sql, 'SCHEMA').rows
               SELECT column_name as attname, data_type as format_type, '' as pg_get_expr,
                      is_nullable = 'f' as attnotnull, data_type as atttypid, -1 as atttypmod
