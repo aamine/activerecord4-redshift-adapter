@@ -12,8 +12,8 @@ require 'active_record/connection_adapters/redshift/database_statements'
 
 require 'arel/visitors/bind_visitor'
 
-# Make sure we're using pg high enough for PG::Result#values
-gem 'pg', '> 1.0'
+# Make sure we're using pg high enough for PGResult#values
+gem 'pg', '> 0.15'
 require 'pg'
 
 require 'ipaddr'
@@ -36,10 +36,10 @@ module ActiveRecord
       conn_params[:user] = conn_params.delete(:username) if conn_params[:username]
       conn_params[:dbname] = conn_params.delete(:database) if conn_params[:database]
 
-      # Forward only valid config params to PG::Connection.connect.
+      # Forward only valid config params to PGconn.connect.
       conn_params.keep_if { |k, _| RS_VALID_CONN_PARAMS.include?(k) }
 
-      # The postgres drivers don't allow the creation of an unconnected PG::Connection object,
+      # The postgres drivers don't allow the creation of an unconnected PGconn object,
       # so just pass a nil connection object for the time being.
       ConnectionAdapters::RedshiftAdapter.new(nil, logger, conn_params, config)
     end
@@ -185,8 +185,8 @@ module ActiveRecord
           end
 
           def connection_active?
-            @connection.status == PG::Connection::CONNECTION_OK
-          rescue PG::Error
+            @connection.status == PGconn::CONNECTION_OK
+          rescue PGError
             false
           end
       end
@@ -227,7 +227,7 @@ module ActiveRecord
       def active?
         @connection.query 'SELECT 1'
         true
-      rescue PG::Error
+      rescue PGError
         false
       end
 
@@ -565,10 +565,10 @@ module ActiveRecord
         # Connects to a PostgreSQL server and sets up the adapter depending on the
         # connected server's characteristics.
         def connect
-          @connection = PG::Connection.connect(@connection_parameters)
+          @connection = PGconn.connect(@connection_parameters)
 
           configure_connection
-        rescue ::PG::Error => error
+        rescue ::PGError => error
           if error.message.include?("does not exist")
             raise ActiveRecord::NoDatabaseError.new(error.message, error)
           else

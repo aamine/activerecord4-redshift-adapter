@@ -19,9 +19,9 @@ module ActiveRecord
 
         def quoted
           if schema
-            PG::Connection.quote_ident(schema) << SEPARATOR << PG::Connection.quote_ident(identifier)
+            PGconn.quote_ident(schema) << SEPARATOR << PGconn.quote_ident(identifier)
           else
-            PG::Connection.quote_ident(identifier)
+            PGconn.quote_ident(identifier)
           end
         end
 

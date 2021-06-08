@@ -149,7 +149,7 @@ module ActiveRecord
         end
 
         # Executes an SQL statement, returning a PGresult object on success
-        # or raising a PG::Error exception otherwise.
+        # or raising a PGError exception otherwise.
         def execute(sql, name = nil)
           log(sql, name) do
             @connection.async_exec(sql)
